@@ -89,4 +89,44 @@ def tick_features(ticks: pd.DataFrame) -> dict[str, float]:
     rng = (px.max() - px.min()) / (px.iloc[0] + EPS)
     feats["intraday_absorption"] = float(np.log1p(total_vol)) * float(np.exp(-50 * rng))
 
+    # --- 8. Rush-order burst statistics --------------------------------------
+    # La Morgia et al. (arXiv:2105.00733): dispersion of aggressive-buy
+    # ("rush") volume across short chunks is the single strongest validated
+    # pre-pump feature (~37% of model importance). We bucket aggressor-buy
+    # volume into 1-minute chunks and take std/mean normalized by total.
+    df1 = df.set_index("time")
+    rush = (df1["volume"] * is_buy.values).resample("1min").sum()
+    rush = rush[rush.index.map(lambda t: t.time() >= pd.Timestamp("09:15").time())]
+    if len(rush) > 10 and rush.sum() > 0:
+        feats["rush_std"] = float(rush.std() / (rush.mean() + EPS))   # burstiness
+        feats["rush_mean"] = float(rush.mean() / (total_vol / len(rush) + EPS))
+    else:
+        feats["rush_std"] = feats["rush_mean"] = 0.0
+
+    # --- 9. Wash-trade statistical battery -----------------------------------
+    # Cong et al. (NBER w30783): fabricated flow deviates from Benford's law
+    # in first digits of trade sizes, and under-uses round sizes. We report
+    # the mean absolute deviation from Benford and the round-size share.
+    first_digit = df["volume"].astype(int).astype(str).str[0].astype(int)
+    obs = first_digit.value_counts(normalize=True).reindex(range(1, 10), fill_value=0)
+    benford = np.log10(1 + 1 / np.arange(1, 10))
+    feats["benford_mad"] = float(np.abs(obs.values - benford).mean())
+    feats["round_share"] = float(
+        df.loc[df["volume"] % 1000 == 0, "volume"].sum()) / (total_vol + EPS)
+
+    # --- 10. Churn ratio ------------------------------------------------------
+    # Account-free circular-trading proxy (Wang & Zhou): volume per unit of
+    # net price displacement. Log-scaled; high = lots of churn, no movement.
+    net_disp = abs(px.iloc[-1] / px.iloc[0] - 1)
+    feats["churn"] = float(np.log1p(total_vol / (net_disp * 1e8 + 1)))
+
+    # --- 11. Aggressor alternation --------------------------------------------
+    # Wash crews ping-pong between sides; organic flow runs in streaks.
+    # Probability that consecutive prints flip aggressor side (excl. auctions).
+    sides = df.loc[is_buy | is_sell, "match_type"].eq("Buy").astype(int)
+    if len(sides) > 20:
+        feats["side_flip_rate"] = float((sides.diff().abs() == 1).mean())
+    else:
+        feats["side_flip_rate"] = 0.0
+
     return feats

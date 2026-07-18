@@ -148,6 +148,54 @@ limiter kills the process when exceeded. The loader caches daily history in
 `data/cache/`; for large universes pre-fetch slowly (`fetch_universe_daily`
 with `pause>=3`) or register a free API key at vnstocks.com.
 
+## Ground truth: documented đội lái cases
+
+`vnmm/cases.py` encodes 19 documented manipulation episodes (2016–2024)
+compiled from prosecutions and UBCKNN decisions — the FLC group (Trịnh Văn
+Quyết, 500 accounts, wash trading + ATO/ATC domination + spoofing), Louis
+Holdings (TGG 37x, BII 10x, 17 accounts + social pump groups), APEC
+(API/APS/IDJ +372–581%, 40 accounts, "set new closing prices"), CMS
+(Zalo/Telegram pump), GKM, DST, FTM, L14 and more. Each has an approximate
+markup-start date, so `scripts/validate_cases.py` can ask the only question
+that matters: **did the detector fire before the documented markup?**
+Labels come from prosecutions, not price patterns — no circularity with the
+price-based training labels.
+
+The prosecution records also validate the feature set directly: every
+indictment describes account-cluster wash trading (→ print-size entropy,
+churn, side-alternation), ATO/ATC domination (→ auction share, ATC gap),
+place-then-cancel spoofing (→ vanishing-wall score), and ceiling-chain
+engineering (→ ceiling-touch magnet count).
+
+## What the detection literature says (and what we adopted)
+
+Key findings from the pump-and-dump / manipulation-detection literature that
+shaped this system (full citations in the papers noted):
+
+- **Rush-order burstiness** — dispersion of aggressive-buy volume across
+  short time chunks — is the single strongest validated pre-pump feature
+  (~37% of model importance in La Morgia et al., arXiv:2105.00733). Adopted
+  as `rush_std`/`rush_mean` in the tick features.
+- **~70% of pump events show a detectable accumulation phase** before markup
+  (arXiv:2504.15790) — validating the two-timescale design: daily
+  accumulation flag → intraday confirmation.
+- **Wash-trade statistics from anonymous prints** (Cong et al., NBER
+  w30783): Benford first-digit deviation, round-size share, size-entropy.
+  Adopted as `benford_mad`/`round_share`. True circular-trade detection
+  needs account graphs regulators have and we don't — these are suspicion
+  proxies, stated as such.
+- **Magnet effect at price limits** (PLOS ONE 2015, Chinese A-shares — the
+  closest market structure to VN): ceiling proximity attracts follow-through.
+  Adopted as `ceil_touches` + `breakout_prox`.
+- **Manipulation concentrates in small, illiquid, volatile stocks**
+  (Aggarwal & Wu) — the watchlist is that cross-sectional prior.
+- **Realistic performance bar**: with regulator-grade labels and rare
+  events, published systems reach high recall but base-rate-limited
+  precision (e.g. recall 0.89 / precision <0.1, MDPI Math 12(9):1336).
+  Precision@top-N per day plus post-alert abnormal returns is the honest
+  reporting standard — which is what `scripts/evaluate_alerts.py` and the
+  event study report.
+
 ## Data sources — what exists and what doesn't
 
 | Data | Source | History |
@@ -158,9 +206,26 @@ with `pause>=3`) or register a free API key at vnstocks.com.
 | Full order-event feed (adds/cancels) | SSI FastConnect / DNSE KRX APIs (registration) | live streaming |
 | Foreign buy/sell flow | included in price board & TCBS endpoints | daily history available |
 
-The single highest-value upgrade path: run the collector for a few weeks,
-then calibrate `spoof_score`/`absorption_score` on your own depth history —
-cancel-vs-fill dynamics are the one thing the daily tape can't see.
+Upgrade path, in order of value (researched July 2026):
+
+1. **Self-record the tape** — run `scripts/archive_ticks.py` after each
+   close and `scripts/collect_orderbook.py` during sessions. Free, and after
+   a few weeks you own the tick/depth history nobody sells cheaply.
+2. **SSI FastConnect Data** (free with an SSI account): streaming `X`
+   channel = full 10-level book + trades with aggressor side + foreign room
+   in real time. DNSE LightSpeed KRX (MQTT websocket) as a free redundant
+   feed. Note: VN exchanges only disseminate aggregated N-level depth —
+   nobody gets per-order (L3) events, so cancel-inference from snapshots is
+   as good as it gets outside the regulator.
+3. **Foreign + tự doanh (prop) daily history** — free JSON endpoints at
+   cafef (`lich-su-giao-dich-api-3/-4.chn`) and `foreign_trade` in vnstock.
+4. **WiFeed API** (cheap, à la carte): major-shareholder changes and
+   free-float per ticker — float concentration is the strongest structural
+   predictor of pump-able tickers.
+5. **FiinQuant** (paid, 14-day trial): the only KRX-connected historical
+   tick archive if you need history you didn't record yourself.
+6. **F319/F247 forum post-velocity** (scrape) and FireAnt posts API — pump
+   crews recruit retail there; thread-velocity spikes lead markups.
 
 ## Repo layout
 
