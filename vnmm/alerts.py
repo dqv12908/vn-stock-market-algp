@@ -16,16 +16,18 @@ log = logging.getLogger(__name__)
 
 def format_alerts(daily: pd.DataFrame, threshold: float = 0.8,
                   tick: pd.DataFrame | None = None,
-                  tick_threshold: float = 0.5,
-                  p_onset_strong: float = 0.75,
-                  p_onset_watch: float = 0.55) -> str:
+                  tick_threshold: float = 0.5) -> str:
+    """Tier policy validated walk-forward OOS (2023-2026, 39k symbol-days):
+    STRONG = composite>=0.6 AND p_onset>=0.6  -> 24.7% precision, 3.7x base
+    WATCH  = composite>=0.5 AND p_onset>=0.5  -> 14.7% precision, 2.2x base
+    (base rate 6.6%; see scripts/train_model.py + README)."""
     lines: list[str] = []
     if len(daily) and "p_onset" in daily.columns:
-        # model-driven tiers take precedence when a trained model exists
-        strong = daily[daily["p_onset"] >= p_onset_strong]
-        watch = daily[(daily["p_onset"] >= p_onset_watch) &
-                      (daily["p_onset"] < p_onset_strong)]
-        for tier, rows_ in (("🚨 STRONG", strong), ("👀 WATCH", watch)):
+        strong_m = (daily["score_ma5"] >= 0.6) & (daily["p_onset"] >= 0.6)
+        watch_m = ((daily["score_ma5"] >= 0.5) & (daily["p_onset"] >= 0.5)
+                   & ~strong_m)
+        for tier, rows_ in (("🚨 STRONG", daily[strong_m]),
+                            ("👀 WATCH", daily[watch_m])):
             for _, r in rows_.iterrows():
                 lines.append(
                     f"{tier} {r['symbol']}  P(onset<=12d)={r['p_onset']:.0%}  "

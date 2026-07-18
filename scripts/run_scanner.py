@@ -29,8 +29,11 @@ def main() -> None:
     daily = scanner.scan_daily(syms)
     print("\n=== DAILY ACCUMULATION SCORES ===")
     if len(daily):
-        print(daily[["symbol", "date", "close", "score", "score_ma5",
-                     "obv_div", "absorption", "cmf", "vol_z"]].to_string(index=False))
+        cols = ["symbol", "date", "close", "score", "score_ma5",
+                "obv_div", "absorption", "cmf", "vol_z"]
+        if "p_onset" in daily.columns:
+            cols.insert(3, "p_onset")
+        print(daily[cols].to_string(index=False))
 
     tick = None
     if not args.no_ticks:

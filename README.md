@@ -108,7 +108,43 @@ at +20d. Second, the lift survives market adjustment but is roughly half the
 raw-return lift, which is exactly the uptrend effect this adjustment exists
 to remove (run `--raw` to see the difference).
 
-### Why the weights are not curve-fitted
+### The announcer: supervised model + composite confirmation
+
+Beyond the event study, the system labels **markup onsets** mechanically
+(abnormal +20% within 15 sessions from a quiet base — `vnmm/labels.py`) and
+trains a gradient-boosted classifier on the feature panel to predict
+P(onset within 12 sessions) — walk-forward, expanding window, evaluated
+only out-of-sample (`scripts/train_model.py`, 79k symbol-days 2019–2026,
+39k OOS 2023–2026, base rate 6.6%).
+
+Neither the model nor the composite alone is the best announcer — their
+**agreement** is (all numbers walk-forward OOS):
+
+| Policy | Alert-days | Precision | Lift |
+|---|---|---|---|
+| composite ≥ 0.5 | 1,368 | 12.9% | 2.0x |
+| model ≥ 0.6 | 3,876 | 11.5% | 1.7x |
+| **both ≥ 0.6 (STRONG tier)** | 178 | **24.7%** | **3.7x** |
+| both ≥ 0.5 (WATCH tier) | 989 | 14.7% | 2.2x |
+
+STRONG fires roughly once a week across the 50-symbol universe. Permutation
+importance ranks `ceil_touches` (band magnet), `breakout_prox`, `coil`, and
+`turnover_z` highest — the model's edge is interaction effects the linear
+composite can't see.
+
+### Validation against prosecuted cases
+
+`scripts/validate_cases.py` replays the detector over the 19 documented
+episodes in `vnmm/cases.py`. At the WATCH threshold with a 60-session
+pre-window, the detector fires **before the documented markup start in
+11/18 testable cases (61%) — including 7/10 criminally prosecuted ones**
+(both Louis tickers, APS, FLC, HAI...). These labels come from indictments,
+not price patterns, so this is free of the circularity risk in
+price-derived labels. Misses concentrate in "on-the-spot" pumps with no
+accumulation phase (the literature expects ~30% of events to be
+undetectable this way) and cases whose documented dates are coarse.
+
+### Why the composite weights are not curve-fitted
 
 `scripts/optimize_weights.py` runs a walk-forward search (train
 2024-06→2025-09, test 2025-10→now; 20,800 symbol-days) under two objectives:
