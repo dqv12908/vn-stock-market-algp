@@ -1,0 +1,166 @@
+# vn-stock-market-algp
+
+**Detecting market-maker ("đội lái") campaigns in the Vietnamese stock market
+before the markup — from public data.**
+
+## The thesis
+
+Big moves in VN small/mid caps (±20–50% in weeks) are rarely organic: free
+float is thin, retail dominates, and a crew with a few hundred billion VND can
+control a tape. But a campaign **cannot be invisible**, because the operator
+must physically accumulate a large share of the float through the same public
+order book everyone sees. Every phase leaves measurable distortions:
+
+| Phase | What the operator does | What the tape shows |
+|---|---|---|
+| 1. Accumulation | Buys quietly for weeks, caps rallies so price stays cheap | OBV rises while price is flat; big volume with no price result; closes near bar highs; rising lows under a flat lid |
+| 2. Shakeout | Engineered flush (often to the floor band) to strip weak hands | Outsized down-spike on high volume that recovers intra-day |
+| 3. Markup | The visible run, often ceiling-limit (trần) chains | Volume *dries up* at ceiling — nobody left to sell |
+| 4. Distribution | Sells into euphoria | Record volume near highs, weakening closes, OFI flips |
+
+The tradeable information is in phases 1–2. This repo measures it at three
+granularities, all from free public endpoints (via `vnstock` → VCI):
+
+1. **Daily bars** (years of history) — accumulation footprint
+2. **Tick-by-tick tape** with aggressor side Buy/Sell — execution footprint
+3. **Top-10 order book depth** (live only — we collect our own history)
+
+## The signals (the math)
+
+### Daily accumulation features — `vnmm/signals/accumulation.py`
+
+All causal (rolling windows, no lookahead), emitted in z-score-like units:
+
+- **`obv_div`** — rolling OLS slope of normalized OBV minus slope of
+  normalized price. Volume flowing in while price goes nowhere is the single
+  strongest accumulation tell.
+- **`absorption`** — Wyckoff effort-vs-result: `z( (V/μV) · exp(−2·|ret|/ATR%) )`.
+  High volume producing no move = supply being absorbed.
+- **`cmf`** — Chaikin money flow (volume-weighted close-location value, 20d):
+  accumulation days close near their highs.
+- **`vol_z`** — z-score of log volume vs 60d.
+- **`turnover_z`** — 20d cumulative volume vs its own 1y norm (float churn).
+- **`coil`** — slope(lows) − slope(highs)⁺: rising lows under a flat lid.
+- **`bb_squeeze`** — 1 − percentile rank of 20d volatility: crews mark up
+  from compressed coils (cheaper to move).
+- **`shakeout`** — flag: down-spike > 1.5 ATR on vol_z > 1 closing in the
+  upper half of its range.
+
+**Composite** (`vnmm/signals/composite.py`): weighted linear sum, clipped to
+±3 per feature, normalized to ~[−3, 3]. Linear on purpose — every alert is
+fully attributable to named distortions.
+
+### Tick features — `vnmm/signals/tickflow.py`
+
+From the match-by-match tape (aggressor side included):
+
+- **`ofi`** — order-flow imbalance: (aggr. buy vol − aggr. sell vol)/matched vol.
+- **`flow_persistence`** — lag-1 autocorrelation of 5-min signed volume.
+  Parent-order execution programs are persistent; organic flow mean-reverts.
+- **`block_share`** — share of volume in prints ≥ its own 95th-pct size.
+- **`size_entropy`** — normalized Shannon entropy of the print-size
+  distribution. **Low entropy = wash-trade / painting signature** (crews
+  reuse lot sizes; organic tape is size-diverse).
+- **`top_size_share`** — share of volume in the single most repeated size.
+- **`auction_share` / `atc_gap`** — ATC volume share and ATC-vs-last price
+  gap: *marking the close* to set tomorrow's ±7% band favorably. Normal ATC
+  share is ~3–8%; campaigns show 20–60%.
+
+### Order book features — `vnmm/signals/orderbook.py`
+
+From collected top-10 depth snapshots:
+
+- **`depth_imbalance` / `touch_imbalance`** — (Σbid − Σask)/(Σbid + Σask),
+  full book and exp-weighted near-touch.
+- **`bid_wall` / `ask_wall`** — max single-level share of its side.
+- **`spoof_score`** — ask walls that vanish *without* trade volume advancing
+  (cancelled, not eaten) — layering to shake out sellers.
+- **`absorption_score`** — heavy traded volume with a still price: offers
+  being eaten ahead of markup.
+- **`di_trend` / `di_flip`** — imbalance regime and its reversal (a flip
+  after a run = distribution starting).
+
+## Does it work? (event study, real data)
+
+30-symbol speculative watchlist, daily bars 2024-06 → 2026-07, event = 5-day
+mean composite crossing a threshold, 20-session cooldown, vs. unconditional
+baseline of the same universe (2,520 samples):
+
+| Threshold | Events | +5d mean | +10d mean | +20d mean | +20d win | ≥15% max-gain in 20d |
+|---|---|---|---|---|---|---|
+| baseline | — | +0.25% | +0.49% | +0.91% | — | 15% |
+| 0.5 | 53 | +2.54% | +3.91% | +7.42% | 58% | **30%** |
+| 0.6 | 21 | +2.83% | +4.79% | +5.94% | 62% | 24% |
+| 0.7 | 7 | +2.65% | +4.02% | +11.07% | **100%** | 29% |
+| 0.8 | 2 | +4.57% | +11.72% | +18.28% | 100% | 50% |
+
+Example hits: DLG flagged 2025-07-14 (score 0.60) → +37% max within 20
+sessions; VIX flagged 2025-02-26 (0.94) → +10% in 20 sessions.
+
+Honest caveats: one watchlist, one two-year window, no transaction costs, no
+band-limit fill modeling (you often *can't buy* a ceiling-locked stock), and
+threshold 0.5 is the statistically meaningful row (n=53). Re-run
+`scripts/backtest_signals.py` on your own universe before trusting anything.
+
+## Usage
+
+```bash
+pip install -r requirements.txt
+
+# 1. Daily + tape scan over the watchlist, prints alerts
+#    (Telegram: export TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)
+python scripts/run_scanner.py
+
+# 2. Order book history collector — leave running during trading hours
+#    (09:00-11:30 / 13:00-14:45 ICT). Snapshots -> data/orderbook/DATE/SYM.parquet
+python scripts/collect_orderbook.py --interval 15
+
+# 3. Event-study backtest
+python scripts/backtest_signals.py --start 2024-01-01 --threshold 0.5 --show-events
+```
+
+Watchlist and thresholds live in `config.yaml`.
+
+**Rate limits:** the free VCI endpoints allow ~60 req/min and vnstock's
+limiter kills the process when exceeded. The loader caches daily history in
+`data/cache/`; for large universes pre-fetch slowly (`fetch_universe_daily`
+with `pause>=3`) or register a free API key at vnstocks.com.
+
+## Data sources — what exists and what doesn't
+
+| Data | Source | History |
+|---|---|---|
+| Daily OHLCV | vnstock → VCI, free | years |
+| Tick tape w/ Buy/Sell side | vnstock → VCI `intraday`, free | recent session(s) only — **archive it daily if you want history** |
+| Top-10 order book depth | vnstock → VCI `price_board`, free | **live only — no public history anywhere; this repo's collector builds your own** |
+| Full order-event feed (adds/cancels) | SSI FastConnect / DNSE KRX APIs (registration) | live streaming |
+| Foreign buy/sell flow | included in price board & TCBS endpoints | daily history available |
+
+The single highest-value upgrade path: run the collector for a few weeks,
+then calibrate `spoof_score`/`absorption_score` on your own depth history —
+cancel-vs-fill dynamics are the one thing the daily tape can't see.
+
+## Repo layout
+
+```
+vnmm/
+  data/loader.py                 # daily / tick / price-board access + cache
+  data/orderbook_collector.py    # depth snapshot daemon -> parquet
+  signals/accumulation.py        # daily-bar footprint features
+  signals/tickflow.py            # tape microstructure features
+  signals/orderbook.py           # depth + book-dynamics features
+  signals/composite.py           # weighted, interpretable scores
+  scanner.py                     # watchlist scans
+  backtest.py                    # event-study harness
+  alerts.py                      # console + Telegram
+scripts/                         # runnable entry points
+config.yaml                      # watchlist + thresholds
+```
+
+## Disclaimer
+
+Research tooling, not investment advice. Detecting manipulation footprints to
+inform your own risk is legal; *participating* in coordinated manipulation is
+not (see the FLC/Trịnh Văn Quyết and Louis Holdings prosecutions). Driven
+stocks routinely retrace 50%+ when the crew exits — the same signals that get
+you in are the ones to watch for the flip.

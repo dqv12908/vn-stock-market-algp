@@ -1,0 +1,43 @@
+# vnmm configuration
+#
+# Watchlist: speculative small/mid caps where driven moves concentrate.
+# Edit freely — the scanner takes whatever is listed here.
+watchlist:
+  - DIG
+  - CEO
+  - DXG
+  - HQC
+  - SCR
+  - LDG
+  - QCG
+  - ITA
+  - HAG
+  - HNG
+  - IDI
+  - ASM
+  - VIX
+  - SHS
+  - VND
+  - CTS
+  - EVG
+  - TCH
+  - GEX
+  - PDR
+  - NVL
+  - KBC
+  - VGC
+  - DLG
+  - JVC
+  - AMD
+  - HAI
+  - TSC
+  - OGC
+  - FIT
+
+thresholds:
+  daily_score: 0.6      # 5d-mean composite score to alert (see backtest table in README)
+  tick_score: 0.5
+  backtest_big_move: 0.15
+
+collector:
+  interval_seconds: 15   # order book snapshot cadence
