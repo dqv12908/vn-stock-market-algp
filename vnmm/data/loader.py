@@ -96,6 +96,12 @@ def price_board(symbols: list[str]) -> pd.DataFrame:
     return df
 
 
+def index_history(start: str, end: str | None = None,
+                  symbol: str = "VNINDEX", use_cache: bool = True) -> pd.DataFrame:
+    """Daily index OHLCV (VNINDEX by default) for market-adjusting returns."""
+    return daily_history(symbol, start, end, use_cache=use_cache)
+
+
 def all_symbols(exchanges: tuple[str, ...] = ("HSX", "HNX")) -> pd.DataFrame:
     """Listing universe with exchange tags."""
     with _quiet():

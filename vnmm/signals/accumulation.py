@@ -40,14 +40,31 @@ def obv(close: pd.Series, volume: pd.Series) -> pd.Series:
 
 
 def accumulation_features(df: pd.DataFrame, base_win: int = 60,
-                          slope_win: int = 20) -> pd.DataFrame:
+                          slope_win: int = 20,
+                          benchmark: pd.Series | None = None) -> pd.DataFrame:
     """Compute the accumulation footprint feature set.
 
     Input df needs columns: open, high, low, close, volume (daily bars).
+
+    benchmark: optional index close series aligned to df's rows (e.g.
+    VNINDEX). When given, the price-driven features (OBV direction, OBV
+    divergence, absorption "result") are computed on the stock's return IN
+    EXCESS of the index, so a broad market rally does not read as
+    stock-specific accumulation. Bar-structure features (CLV, coil,
+    squeeze, shakeout) stay on raw bars — they describe the stock's own
+    tape shape.
     """
     o, h, l, c, v = (df[k].astype(float) for k in
                      ("open", "high", "low", "close", "volume"))
     out = pd.DataFrame(index=df.index)
+
+    # market-relative close: stock priced in units of the index. All
+    # trend/divergence math below uses c_rel so index beta cancels out.
+    if benchmark is not None:
+        bench = benchmark.astype(float).reindex(df.index).ffill()
+        c_rel = c / (bench + EPS)
+    else:
+        c_rel = c
 
     # --- 1. Volume anomaly -------------------------------------------------
     # z-score of log volume vs trailing 60d. Log because VN small-cap volume
@@ -57,9 +74,9 @@ def accumulation_features(df: pd.DataFrame, base_win: int = 60,
     # --- 2. OBV divergence -------------------------------------------------
     # Operator accumulates: OBV trends up while price goes nowhere.
     # Slope of normalized OBV minus slope of normalized price over slope_win.
-    obv_ = obv(c, v)
+    obv_ = obv(c_rel, v)
     obv_n = (obv_ - obv_.rolling(base_win).mean()) / (obv_.rolling(base_win).std() + EPS)
-    px_n = (c - c.rolling(base_win).mean()) / (c.rolling(base_win).std() + EPS)
+    px_n = (c_rel - c_rel.rolling(base_win).mean()) / (c_rel.rolling(base_win).std() + EPS)
     t = np.arange(len(df), dtype=float)
     def _slope(s: pd.Series) -> pd.Series:
         # rolling OLS slope of s on time
@@ -73,7 +90,7 @@ def accumulation_features(df: pd.DataFrame, base_win: int = 60,
     # Wyckoff: big volume ("effort") that produces no price change ("result")
     # means someone is absorbing supply. result = |ret| in range units;
     # effort = volume vs average. High effort_z with low result => absorption.
-    ret = c.pct_change().abs()
+    ret = c_rel.pct_change().abs()
     atr_pct = ((h - l) / c.shift(1)).rolling(base_win).mean()
     result = ret / (atr_pct + EPS)
     effort = v / (v.rolling(base_win).mean() + EPS)

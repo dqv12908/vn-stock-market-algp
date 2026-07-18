@@ -14,6 +14,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 
+from .backtest import align_index
 from .data import loader
 from .signals.accumulation import accumulation_features
 from .signals.tickflow import tick_features
@@ -28,6 +29,11 @@ def scan_daily(symbols: list[str], lookback_days: int = 550,
     # most one session old — fine for a daily scan and safe from the
     # ~60 req/min limit that kills the process on repeated full fetches.
     start = (date.today() - timedelta(days=lookback_days)).isoformat()
+    try:
+        index_df = loader.index_history(start=start, use_cache=use_cache)
+    except Exception as e:  # noqa: BLE001
+        log.warning("VNINDEX fetch failed (%s); scoring without benchmark", e)
+        index_df = None
     rows = []
     for sym in symbols:
         try:
@@ -41,7 +47,9 @@ def scan_daily(symbols: list[str], lookback_days: int = 550,
             if (pd.Timestamp.today() - df["time"].iloc[-1]).days > 7:
                 log.info("skip %s: stale (last bar %s)", sym, df["time"].iloc[-1].date())
                 continue
-            feats = accumulation_features(df)
+            feats = accumulation_features(
+                df.reset_index(drop=True),
+                benchmark=align_index(df.reset_index(drop=True), index_df))
             score = daily_score(feats)
             last = feats.iloc[-1]
             rows.append({

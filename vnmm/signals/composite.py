@@ -5,8 +5,13 @@ The score is deliberately a *linear* combination of interpretable features —
 when an alert fires you can read exactly which distortion drove it, which
 matters more than a few points of AUC from a black box.
 
-Weights below were sanity-tuned on the 2025-2026 event study in
-scripts/backtest_signals.py; retune with your own collected data.
+The weights are theory-derived, not fitted — and that is a validated
+choice, not laziness: scripts/optimize_weights.py runs a walk-forward
+random search (train 2024-06..2025-09, test 2025-10..) under both a
+rank-IC and a tail-return objective, and every fitted weight vector that
+beat the defaults in-sample lost to them out-of-sample. With ~44 symbols
+x 2 years the tail events are too few to fit on; revisit only after the
+universe/history grows severalfold.
 """
 
 from __future__ import annotations

@@ -33,6 +33,26 @@ watchlist:
   - TSC
   - OGC
   - FIT
+  - NKG
+  - HSG
+  - TLH
+  - VOS
+  - DPG
+  - LCG
+  - HHV
+  - VCG
+  - FCN
+  - CII
+  - HHS
+  - TTF
+  - DXS
+  - AGG
+  - HDC
+  - NHA
+  - CSC
+  - L14
+  - DST
+  - API
 
 thresholds:
   daily_score: 0.6      # 5d-mean composite score to alert (see backtest table in README)

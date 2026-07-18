@@ -24,15 +24,21 @@ def main() -> None:
     ap.add_argument("--start", default="2024-01-01")
     ap.add_argument("--threshold", type=float, default=0.8)
     ap.add_argument("--show-events", action="store_true")
+    ap.add_argument("--raw", action="store_true",
+                    help="raw returns instead of abnormal (vs VNINDEX)")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     cfg = yaml.safe_load(Path(args.config).read_text())
     data = loader.fetch_universe_daily(cfg["watchlist"], start=args.start)
     print(f"loaded {len(data)} symbols from {args.start}")
+    index_df = None
+    if not args.raw:
+        index_df = loader.index_history(start=args.start)
+        print(f"benchmark VNINDEX: {len(index_df)} sessions")
 
     summary = backtest.event_study(
-        data, threshold=args.threshold,
+        data, threshold=args.threshold, index_df=index_df,
         big_move=cfg["thresholds"].get("backtest_big_move", 0.15))
     backtest.print_summary(summary)
     if args.show_events and summary.get("n_events"):

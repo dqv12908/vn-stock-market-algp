@@ -80,26 +80,48 @@ From collected top-10 depth snapshots:
 - **`di_trend` / `di_flip`** — imbalance regime and its reversal (a flip
   after a run = distribution starting).
 
-## Does it work? (event study, real data)
+## Does it work — and is it just "everything went up"? (event study, real data)
 
-30-symbol speculative watchlist, daily bars 2024-06 → 2026-07, event = 5-day
+The evaluation is deliberately **market-adjusted**: every return below is the
+stock's forward return **minus VNINDEX's return over the identical calendar
+window** (abnormal return), so a broad rally contributes equally to both legs
+and cancels. The features themselves are also market-relative — OBV
+direction, OBV/price divergence and absorption are computed on the stock's
+return in excess of the index (`accumulation_features(benchmark=...)`), so an
+index melt-up cannot masquerade as stock-specific accumulation.
+
+50-symbol speculative watchlist, daily bars 2024-06 → 2026-07, event = 5-day
 mean composite crossing a threshold, 20-session cooldown, vs. unconditional
-baseline of the same universe (2,520 samples):
+abnormal returns of the same universe (4,200 samples):
 
-| Threshold | Events | +5d mean | +10d mean | +20d mean | +20d win | ≥15% max-gain in 20d |
-|---|---|---|---|---|---|---|
-| baseline | — | +0.25% | +0.49% | +0.91% | — | 15% |
-| 0.5 | 53 | +2.54% | +3.91% | +7.42% | 58% | **30%** |
-| 0.6 | 21 | +2.83% | +4.79% | +5.94% | 62% | 24% |
-| 0.7 | 7 | +2.65% | +4.02% | +11.07% | **100%** | 29% |
-| 0.8 | 2 | +4.57% | +11.72% | +18.28% | 100% | 50% |
+| Threshold | Events | +10d abn. | +20d abn. | +20d t-stat | ≥15% abn. max-gain in 20d |
+|---|---|---|---|---|---|
+| baseline | — | −0.60% | −1.23% | — | 10% |
+| 0.5 | 90 | +0.94% | +1.10% | +1.6 | 19% |
+| 0.6 | 38 | +1.84% | +3.35% | **+2.0** | 26% |
+| 0.7 | 13 | +1.94% | +5.23% | **+2.6** | **31% (3x)** |
 
-Example hits: DLG flagged 2025-07-14 (score 0.60) → +37% max within 20
-sessions; VIX flagged 2025-02-26 (0.94) → +10% in 20 sessions.
+Two things worth noticing. First, the *baseline is negative*: this universe
+of speculative names loses to the index unconditionally — the signal's job is
+picking the exceptions, and the spread (event minus baseline) is ~4.5–6.5pp
+at +20d. Second, the lift survives market adjustment but is roughly half the
+raw-return lift, which is exactly the uptrend effect this adjustment exists
+to remove (run `--raw` to see the difference).
 
-Honest caveats: one watchlist, one two-year window, no transaction costs, no
-band-limit fill modeling (you often *can't buy* a ceiling-locked stock), and
-threshold 0.5 is the statistically meaningful row (n=53). Re-run
+### Why the weights are not curve-fitted
+
+`scripts/optimize_weights.py` runs a walk-forward search (train
+2024-06→2025-09, test 2025-10→now; 20,800 symbol-days) under two objectives:
+rank-IC over all days, and mean abnormal return of the top-2% score tail.
+Both found weight vectors that beat the defaults in-sample and **both lost to
+the theory-derived defaults out-of-sample** (e.g. tail-objective winner:
++2.0% vs defaults' +8.1% at +20d on the test window). With this sample size
+the tail is too thin to fit on, so the shipped weights stay theory-grounded —
+re-run the optimizer once you have a bigger universe or your own collected
+depth history.
+
+Remaining caveats: one two-year window, no transaction costs, no band-limit
+fill modeling (you often *can't buy* a ceiling-locked stock). Re-run
 `scripts/backtest_signals.py` on your own universe before trusting anything.
 
 ## Usage
