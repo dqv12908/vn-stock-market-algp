@@ -9,6 +9,7 @@ Two passes:
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, timedelta
 
 import pandas as pd
@@ -22,11 +23,17 @@ log = logging.getLogger(__name__)
 
 
 def scan_daily(symbols: list[str], lookback_days: int = 550,
-               use_cache: bool = False) -> pd.DataFrame:
+               use_cache: bool = True, pause: float = 2.0) -> pd.DataFrame:
+    # cache files are keyed by (start, end=today), so cached reads are at
+    # most one session old — fine for a daily scan and safe from the
+    # ~60 req/min limit that kills the process on repeated full fetches.
     start = (date.today() - timedelta(days=lookback_days)).isoformat()
     rows = []
     for sym in symbols:
         try:
+            cached = loader.CACHE_DIR / f"daily_{sym}_{start}_{date.today().isoformat()}.parquet"
+            if not cached.exists():
+                time.sleep(pause)
             df = loader.daily_history(sym, start, use_cache=use_cache)
             if len(df) < 120:
                 continue
@@ -51,10 +58,11 @@ def scan_daily(symbols: list[str], lookback_days: int = 550,
     return out.sort_values("score", ascending=False).reset_index(drop=True) if len(out) else out
 
 
-def scan_ticks(symbols: list[str]) -> pd.DataFrame:
+def scan_ticks(symbols: list[str], pause: float = 2.0) -> pd.DataFrame:
     rows = []
     for sym in symbols:
         try:
+            time.sleep(pause)
             ticks = loader.intraday_ticks(sym)
             feats = tick_features(ticks)
             if not feats:
