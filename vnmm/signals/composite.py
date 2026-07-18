@@ -28,6 +28,10 @@ DAILY_WEIGHTS: dict[str, float] = {
     "coil":        0.40,   # rising lows under flat lid
     "bb_squeeze":  0.40,   # compression before markup
     "shakeout":    0.60,   # engineered flush marker
+    "ceil_touches": 0.50,  # band magnet effect
+    "illiq_drop":  0.50,   # operator absorbing impact
+    "acc_streak":  0.40,   # sustained programmatic buying
+    "breakout_prox": 0.40, # coiled under the lid
 }
 
 TICK_WEIGHTS: dict[str, float] = {

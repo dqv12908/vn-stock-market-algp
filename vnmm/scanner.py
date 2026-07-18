@@ -34,6 +34,8 @@ def scan_daily(symbols: list[str], lookback_days: int = 550,
     except Exception as e:  # noqa: BLE001
         log.warning("VNINDEX fetch failed (%s); scoring without benchmark", e)
         index_df = None
+    from . import model as _model
+    onset_model = _model.load()
     rows = []
     for sym in symbols:
         try:
@@ -51,15 +53,19 @@ def scan_daily(symbols: list[str], lookback_days: int = 550,
                 df.reset_index(drop=True),
                 benchmark=align_index(df.reset_index(drop=True), index_df))
             score = daily_score(feats)
-            last = feats.iloc[-1]
-            rows.append({
+            row = {
                 "symbol": sym,
                 "date": df["time"].iloc[-1].date(),
                 "close": df["close"].iloc[-1],
                 "score": round(float(score.iloc[-1]), 3),
                 "score_ma5": round(float(score.rolling(5).mean().iloc[-1]), 3),
-                **{k: round(float(last[k]), 3) for k in feats.columns},
-            })
+                **{k: round(float(feats[k].iloc[-1]), 3) for k in feats.columns},
+            }
+            if onset_model is not None:
+                p = onset_model["model"].predict_proba(
+                    feats[onset_model["features"]].iloc[[-1]])[0, 1]
+                row["p_onset"] = round(float(p), 3)
+            rows.append(row)
         except Exception as e:  # noqa: BLE001
             log.warning("daily scan %s failed: %s", sym, e)
     out = pd.DataFrame(rows)

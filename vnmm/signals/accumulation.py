@@ -129,4 +129,33 @@ def accumulation_features(df: pd.DataFrame, base_win: int = 60,
     out["shakeout"] = ((down_spike > 1.5) & (recover > 0.5) &
                        (out["vol_z"] > 1.0)).astype(float)
 
+    # --- 9. Ceiling-touch count (magnet effect) -----------------------------
+    # VN price bands make the ceiling a focal point: a stock that has tagged
+    # its band recently attracts follow-through (documented "magnet effect"
+    # in limit markets). Raw daily return >= ~93% of the band counts as a
+    # touch; we don't know the exchange here so 6.5% approximates HOSE's 7%.
+    raw_ret = c.pct_change()
+    out["ceil_touches"] = (raw_ret >= 0.065).rolling(slope_win).sum()
+
+    # --- 10. Amihud illiquidity collapse ------------------------------------
+    # Amihud = |ret| / dong volume. When an operator provides liquidity to
+    # keep price steady while accumulating, impact-per-dong falls sharply
+    # vs its own history. z-scored and sign-flipped: high = suspicious.
+    amihud = ret / (np.log1p(c * v) + EPS)
+    out["illiq_drop"] = -_z(np.log1p(amihud), base_win)
+
+    # --- 11. Accumulation-day streak ----------------------------------------
+    # Consecutive days closing in the upper half of the bar on >= median
+    # volume. Organic tape rarely sustains long streaks; execution programs do.
+    acc_day = ((clv > 0) & (v >= v.rolling(base_win).median())).astype(int)
+    streak = acc_day.groupby((acc_day == 0).cumsum()).cumsum()
+    out["acc_streak"] = streak.rolling(slope_win).max() / 5.0
+
+    # --- 12. Proximity to breakout ------------------------------------------
+    # Distance of close to the 60d high (in ATR units, capped). Markup fires
+    # from just under resistance; a high accumulation score AND price coiled
+    # near the lid is the highest-probability moment. 1 = at the high.
+    dist = (h.rolling(base_win).max() - c) / (c * atr_pct * 4 + EPS)
+    out["breakout_prox"] = (1.0 - dist).clip(-1, 1)
+
     return out

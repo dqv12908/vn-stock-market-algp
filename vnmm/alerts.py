@@ -16,8 +16,20 @@ log = logging.getLogger(__name__)
 
 def format_alerts(daily: pd.DataFrame, threshold: float = 0.8,
                   tick: pd.DataFrame | None = None,
-                  tick_threshold: float = 0.5) -> str:
+                  tick_threshold: float = 0.5,
+                  p_onset_strong: float = 0.75,
+                  p_onset_watch: float = 0.55) -> str:
     lines: list[str] = []
+    if len(daily) and "p_onset" in daily.columns:
+        # model-driven tiers take precedence when a trained model exists
+        strong = daily[daily["p_onset"] >= p_onset_strong]
+        watch = daily[(daily["p_onset"] >= p_onset_watch) &
+                      (daily["p_onset"] < p_onset_strong)]
+        for tier, rows_ in (("🚨 STRONG", strong), ("👀 WATCH", watch)):
+            for _, r in rows_.iterrows():
+                lines.append(
+                    f"{tier} {r['symbol']}  P(onset<=12d)={r['p_onset']:.0%}  "
+                    f"score={r['score_ma5']:.2f}  close={r['close']}")
     hot = daily[daily["score_ma5"] >= threshold] if len(daily) else daily
     for _, r in hot.iterrows():
         drivers = []
